@@ -1,0 +1,56 @@
+name: ERaZor source checkout artifact
+
+on:
+  push:
+    branches:
+      - actions/erazor-source-artifact
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clone-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Clone ERaZor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/Selbi182/ERaZor.git ERaZor
+          git -C ERaZor fetch --no-tags origin 329d1246d3b6ec89fb081b64cd46928f9e297ace
+          git -C ERaZor checkout --detach 329d1246d3b6ec89fb081b64cd46928f9e297ace
+          test "$(git -C ERaZor rev-parse HEAD)" = "329d1246d3b6ec89fb081b64cd46928f9e297ace"
+
+      - name: Create source archive, Git bundle, and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C ERaZor archive --format=zip --prefix=ERaZor/ HEAD -o "$GITHUB_WORKSPACE/ERaZor-source.zip"
+          git -C ERaZor bundle create "$GITHUB_WORKSPACE/ERaZor-full-history.bundle" --all
+          {
+            echo "Repository: https://github.com/Selbi182/ERaZor.git"
+            echo "Commit: $(git -C ERaZor rev-parse HEAD)"
+            echo "Pinned commit: 329d1246d3b6ec89fb081b64cd46928f9e297ace"
+            echo "Tracked files at commit: $(git -C ERaZor ls-tree -r --name-only HEAD | wc -l | tr -d ' ')"
+            echo "Git bundle refs:"
+            git -C ERaZor bundle list-heads "$GITHUB_WORKSPACE/ERaZor-full-history.bundle"
+            echo
+            echo "Source ZIP SHA256:"
+            sha256sum ERaZor-source.zip
+            echo "Git bundle SHA256:"
+            sha256sum ERaZor-full-history.bundle
+          } > ERaZor-manifest.txt
+
+      - name: Upload checkout artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERaZor-source-329d1246
+          path: |
+            ERaZor-source.zip
+            ERaZor-full-history.bundle
+            ERaZor-manifest.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
