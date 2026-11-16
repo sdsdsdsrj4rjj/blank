@@ -29,6 +29,213 @@ jobs:
           git clone --depth 1 https://github.com/Selbi182/ERaZor.git ERaZor
           git -C ERaZor fetch --depth 1 origin 329d1246d3b6ec89fb081b64cd46928f9e297ace
           git -C ERaZor checkout --detach 329d1246d3b6ec89fb081b64cd46928f9e297ace
+          # ERaZor's GHZ map file contains 128x128 chunks; make SonLVL read its actual chunk size.
+          $iniPath = 'ERaZor/src/SonLVL INIs/SonLVL.ini'
+          $iniText = [IO.File]::ReadAllText($iniPath)
+          $iniText = [regex]::Replace($iniText, '(?m)^(chunks=\.\./LevelData/map256/ghz\.kosp)\r?          Copy-Item -LiteralPath "$artDir/8x8ghz.kospm" -Destination "$artDir/8x8ghz1.kospm" -Force
+          Get-ChildItem -LiteralPath 'ERaZor/src/SonLVL INIs/GHZ' -Filter '*.cs' -File | ForEach-Object {
+            $source = Get-Content -LiteralPath $_.FullName -Raw
+            $source = $source.Replace('CompressionType.Nemesis','CompressionType.KosinskiPlusM')
+            Set-Content -LiteralPath $_.FullName -Value $source -Encoding UTF8
+          }
+          git clone --depth 1 https://github.com/ElspethThePict/S2Absolute.git S2Absolute
+          git -C S2Absolute fetch --depth 1 origin a4de68f96eb184258fc87c1cacef9692f425ecec
+          git -C S2Absolute checkout --detach a4de68f96eb184258fc87c1cacef9692f425ecec
+          git clone --depth 1 https://github.com/MainMemory/RetroConverter.git RetroConverter
+
+      - name: Add headless RetroConverter entry point
+        shell: pwsh
+        run: |
+          $program = @'
+          using System;
+          using System.Collections.Generic;
+          using System.IO;
+          using System.Linq;
+          using System.Reflection;
+          using System.Windows.Forms;
+          using SonicRetro.SonLVL.API;
+
+          namespace RetroConverter
+          {
+              static class Program
+              {
+                  [STAThread]
+                  static int Main(string[] args)
+                  {
+                      if (args.Length == 0 || args[0] != "--convert")
+                      {
+                          Application.EnableVisualStyles();
+                          Application.SetCompatibleTextRenderingDefault(false);
+                          Application.Run(new Form1());
+                          return 0;
+                      }
+
+                      try
+                      {
+                          if (args.Length < 6)
+                              throw new ArgumentException("Usage: RetroConverter.exe --convert <SonLVL.ini> <level name> <GameConfig.bin> <output dir> <include objects true|false>");
+
+                          Application.EnableVisualStyles();
+                          Application.SetCompatibleTextRenderingDefault(false);
+                          LevelData.LogEvent += message => Console.WriteLine(String.Join(" ", message));
+
+                          Form1 form = new Form1();
+                          Type formType = typeof(Form1);
+                          BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+                          formType.GetMethod("LoadProject", flags).Invoke(form, new object[] { args[1] });
+                          List<string> levels = (List<string>)formType.GetField("Levels", flags).GetValue(form);
+                          string selectedLevel = levels.FirstOrDefault(level =>
+                              String.Equals(level, args[2], StringComparison.OrdinalIgnoreCase) ||
+                              String.Equals(LevelData.Game.GetLevelInfo(level).DisplayName, args[2], StringComparison.OrdinalIgnoreCase));
+                          if (selectedLevel == null)
+                              throw new InvalidOperationException("Level not found. Available: " + String.Join(" | ", levels));
+
+                          formType.GetMethod("LoadGameConfig", flags).Invoke(form, new object[] { args[3] });
+                          ((FolderBrowserDialog)formType.GetField("rsdkExportDialog", flags).GetValue(form)).SelectedPath = args[4];
+                          bool includeObjects = Boolean.Parse(args[5]);
+                          ((CheckBox)formType.GetField("includeObjectsCheckBox", flags).GetValue(form)).Checked = includeObjects;
+
+                          Directory.CreateDirectory(args[4]);
+                          LevelData.LoadLevel(selectedLevel, true);
+
+                          File.WriteAllLines(Path.Combine(args[4], "ERaZor-object-definitions.csv"),
+                              new[] { "SourceID,Name" }.Concat(LevelData.ObjTypes.OrderBy(kv => kv.Key)
+                                  .Select(kv => String.Format("0x{0:X2},\"{1}\"", kv.Key, (kv.Value.Name ?? "").Replace("\"", "\"\"")))));
+
+                          RSDKv4.GameConfig targetConfig = new RSDKv4.GameConfig(args[3]);
+                          File.WriteAllLines(Path.Combine(args[4], "S2A-global-object-types.csv"),
+                              new[] { "TargetID,Name" }.Concat(targetConfig.objects.Select((obj, index) =>
+                                  String.Format("{0},\"{1}\"", index + 1, (obj.name ?? "").Replace("\"", "\"\"")))));
+
+                          Console.WriteLine("Source level: " + selectedLevel);
+                          Console.WriteLine("Source objects: " + LevelData.Objects.Count);
+                          Console.WriteLine("Source rings: " + LevelData.Rings.Count);
+                          Console.WriteLine("Source chunks: " + LevelData.Chunks.Count);
+                          Console.WriteLine("Source blocks: " + LevelData.Blocks.Count);
+                          Console.WriteLine("Source object definitions: " + LevelData.ObjTypes.Count);
+                          Console.WriteLine("Target global object definitions: " + targetConfig.objects.Count);
+
+                          // Repair only invalid source layout references; map them to SonLVL's synthetic blank chunk (index 0).
+                          int invalidFG = 0, invalidBG = 0, nullChunkBlocks = 0;
+                          ushort[,] fg = LevelData.Layout.FGLayout;
+                          for (int y = 0; y < fg.GetLength(1); y++)
+                              for (int x = 0; x < fg.GetLength(0); x++)
+                              {
+                                  ushort id = fg[x, y];
+                                  if (id >= LevelData.Chunks.Count || LevelData.Chunks[id] == null)
+                                  {
+                                      Console.WriteLine("FG layout [" + x + "," + y + "] references missing chunk " + id + "; using blank chunk 0.");
+                                      fg[x, y] = 0;
+                                      invalidFG++;
+                                  }
+                              }
+                          ushort[,] bgLayout = LevelData.Layout.BGLayout;
+                          for (int y = 0; y < bgLayout.GetLength(1); y++)
+                              for (int x = 0; x < bgLayout.GetLength(0); x++)
+                              {
+                                  ushort id = bgLayout[x, y];
+                                  if (id >= LevelData.Chunks.Count || LevelData.Chunks[id] == null)
+                                  {
+                                      Console.WriteLine("BG layout [" + x + "," + y + "] references missing chunk " + id + "; using blank chunk 0.");
+                                      bgLayout[x, y] = 0;
+                                      invalidBG++;
+                                  }
+                              }
+                          for (int ci = 0; ci < LevelData.Chunks.Count; ci++)
+                          {
+                              var chunk = LevelData.Chunks[ci];
+                              if (chunk == null) continue;
+                              for (int by = 0; by < chunk.Blocks.GetLength(1); by++)
+                                  for (int bx = 0; bx < chunk.Blocks.GetLength(0); bx++)
+                                      if (chunk.Blocks[bx, by] == null)
+                                      {
+                                          chunk.Blocks[bx, by] = ChunkBlock.Create(EngineVersion.S1);
+                                          chunk.Blocks[bx, by].Block = 0;
+                                          nullChunkBlocks++;
+                                      }
+                          }
+                          Console.WriteLine("Missing layout refs repaired: FG=" + invalidFG + ", BG=" + invalidBG + ", null chunk cells filled=" + nullChunkBlocks);
+                          if (invalidFG != 0 || invalidBG != 0)
+                              throw new InvalidOperationException("Source layout contains missing chunk references. Refusing to export a stage with blanked-out layout cells.");
+
+                          formType.GetMethod("ConvertV4", flags).Invoke(form, null);
+                          form.Dispose();
+                          Console.WriteLine("RSDKv4 conversion finished.");
+                          return 0;
+                      }
+                      catch (Exception ex)
+                      {
+                          Console.Error.WriteLine(ex);
+                          return 1;
+                      }
+                  }
+              }
+          }
+          '@
+          Set-Content -LiteralPath 'RetroConverter/RetroConverter/Program.cs' -Value $program -Encoding UTF8
+
+      - name: Build RetroConverter
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msbuild 'RetroConverter/RetroConverter.sln' /t:Build /p:Configuration=Release /p:Platform="Any CPU" /m
+          $bin = 'RetroConverter/RetroConverter/bin/Release'
+          Get-ChildItem 'RetroConverter' -Filter '*.dll' -File | Copy-Item -Destination $bin -Force
+          Get-ChildItem $bin -Filter '*.dll' | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Convert Night Hill Place using S2A globals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ini = (Resolve-Path 'ERaZor/src/SonLVL INIs/SonLVL.ini').Path
+          $game = (Resolve-Path 'S2Absolute/Mods/Sonic 2 Absolute/Data/Game/GameConfig.bin').Path
+          $out = Join-Path $env:GITHUB_WORKSPACE 'ERaZor-NightHill-RSDKv4'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $exe = (Resolve-Path 'RetroConverter/RetroConverter/bin/Release/RetroConverter.exe').Path
+          & $exe --convert $ini 'Night Hill Place' $game $out true
+          # RetroConverter is built as a WinExe, so PowerShell may not populate LASTEXITCODE.
+          # Verify the complete output set below instead of relying on a blank native exit-code variable.
+          $required = @('StageConfig.bin','16x16Tiles.gif','128x128Tiles.bin','CollisionMasks.bin','Backgrounds.bin','Act1.bin')
+          foreach ($name in $required) {
+            $file = Join-Path $out $name
+            if (!(Test-Path $file)) { throw "Missing converter output: $name" }
+          }
+          Get-ChildItem $out -File | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Package conversion artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'ERaZor-NightHill-RSDKv4'
+          $readme = @'
+          ERaZor 8.1 — Night Hill Place (GHZ) conversion experiment
+          Source: https://github.com/Selbi182/ERaZor
+          Source commit: 329d1246d3b6ec89fb081b64cd46928f9e297ace
+          Converter: https://github.com/MainMemory/RetroConverter
+          Target reference: https://github.com/ElspethThePict/S2Absolute
+          Target source commit: a4de68f96eb184258fc87c1cacef9692f425ecec
+
+          This package contains generated RSDKv4 stage files and object-ID reports.
+          It is an experimental stage conversion, not a finished playable port.
+          Original ERaZor music is intentionally excluded, as required by its README.
+          ERaZor source credit: Selbi182. Source is CC BY-NC 4.0; see the upstream
+          repository for license details. Do not use this package commercially.
+          '@
+          Set-Content -LiteralPath "$out/README-PORT.txt" -Value $readme -Encoding UTF8
+          Compress-Archive -Path "$out/*" -DestinationPath 'ERaZor-NightHill-RSDKv4.zip' -CompressionLevel Optimal -Force
+          Get-FileHash 'ERaZor-NightHill-RSDKv4.zip' -Algorithm SHA256 | Format-List
+
+      - name: Upload converted Night Hill stage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERaZor-NightHill-RSDKv4
+          path: ERaZor-NightHill-RSDKv4.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+, '$1' + "`r`nchunkwidth=128`r`nchunkheight=128")
+          [IO.File]::WriteAllText($iniPath, $iniText, (New-Object System.Text.UTF8Encoding($false)))
           $artDir = 'ERaZor/src/artkosp'
           Copy-Item -LiteralPath "$artDir/8x8ghz.kospm" -Destination "$artDir/8x8ghz1.kospm" -Force
           Get-ChildItem -LiteralPath 'ERaZor/src/SonLVL INIs/GHZ' -Filter '*.cs' -File | ForEach-Object {
