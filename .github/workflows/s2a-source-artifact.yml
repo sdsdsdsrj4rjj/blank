@@ -1,0 +1,49 @@
+name: S2Absolute source reference snapshot
+
+on:
+  push:
+    branches:
+      - actions/erazor-source-artifact
+    paths:
+      - .github/workflows/s2a-source-artifact.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkout-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Clone pinned S2Absolute source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/ElspethThePict/S2Absolute.git S2Absolute
+          git -C S2Absolute fetch --depth 1 origin a4de68f96eb184258fc87c1cacef9692f425ecec
+          git -C S2Absolute checkout --detach a4de68f96eb184258fc87c1cacef9692f425ecec
+          test "$(git -C S2Absolute rev-parse HEAD)" = "a4de68f96eb184258fc87c1cacef9692f425ecec"
+      - name: Archive source snapshot and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C S2Absolute archive --format=zip --prefix=S2Absolute/ HEAD -o "$GITHUB_WORKSPACE/S2Absolute-source.zip"
+          {
+            echo "Repository: https://github.com/ElspethThePict/S2Absolute.git"
+            echo "Commit: $(git -C S2Absolute rev-parse HEAD)"
+            echo "Pinned commit: a4de68f96eb184258fc87c1cacef9692f425ecec"
+            echo "Tracked files: $(git -C S2Absolute ls-tree -r --name-only HEAD | wc -l | tr -d ' ')"
+            echo "Source ZIP SHA256:"
+            sha256sum S2Absolute-source.zip
+          } > S2Absolute-manifest.txt
+      - name: Upload S2Absolute reference source
+        uses: actions/upload-artifact@v4
+        with:
+          name: S2Absolute-source-a4de68f9
+          path: |
+            S2Absolute-source.zip
+            S2Absolute-manifest.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
