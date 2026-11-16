@@ -162,7 +162,17 @@ jobs:
                           }
                           Console.WriteLine("Missing layout refs repaired: FG=" + invalidFG + ", BG=" + invalidBG + ", null chunk cells filled=" + nullChunkBlocks);
 
+                          FolderBrowserDialog exportDialog = (FolderBrowserDialog)formType.GetField("rsdkExportDialog", flags).GetValue(form);
+                          exportDialog.SelectedPath = Path.GetFullPath(args[4]);
+                          Console.WriteLine("RSDKv4 export directory before conversion: " + exportDialog.SelectedPath);
+                          Console.WriteLine("Output directory exists before conversion: " + Directory.Exists(exportDialog.SelectedPath));
                           formType.GetMethod("ConvertV4", flags).Invoke(form, null);
+                          Console.WriteLine("RSDKv4 export directory after conversion: " + exportDialog.SelectedPath);
+                          foreach (string file in Directory.GetFiles(exportDialog.SelectedPath, "*", SearchOption.AllDirectories))
+                              Console.WriteLine("EXPORTED FILE: " + file + " (" + new FileInfo(file).Length + " bytes)");
+                          string[] allStageConfigs = Directory.GetFiles(Environment.CurrentDirectory, "StageConfig.bin", SearchOption.AllDirectories);
+                          foreach (string file in allStageConfigs)
+                              Console.WriteLine("FOUND STAGECONFIG: " + file);
                           form.Dispose();
                           Console.WriteLine("RSDKv4 conversion finished.");
                           return 0;
