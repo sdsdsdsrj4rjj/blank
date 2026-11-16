@@ -197,7 +197,7 @@ jobs:
           New-Item -ItemType Directory -Path $out -Force | Out-Null
           $exe = (Resolve-Path 'RetroConverter/RetroConverter/bin/Release/RetroConverter.exe').Path
           & $exe --convert $ini 'Night Hill Place' $game $out true
-          if ($LASTEXITCODE -ne 0) { throw "RetroConverter failed with exit code $LASTEXITCODE" }
+          # Verify outputs below; this WinExe does not reliably set PowerShell LASTEXITCODE.
           $required = @('StageConfig.bin','16x16Tiles.gif','128x128Tiles.bin','CollisionMasks.bin','Backgrounds.bin','Act1.bin')
           foreach ($name in $required) {
             $file = Join-Path $out $name
