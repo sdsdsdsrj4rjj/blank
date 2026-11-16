@@ -51,6 +51,79 @@ jobs:
       - name: Add headless RetroConverter entry point
         shell: pwsh
         run: |
+          # Adapt the S1 object model to the nearest S2A global object when the
+          # behavior is sufficiently close, then convert S1 ring groups/springs/spikes.
+          $formPath = 'RetroConverter/RetroConverter/Form1.cs'
+          $formSource = Get-Content -LiteralPath $formPath -Raw
+          $aliasReplacement = @'
+          name = def.Name;
+                              switch (name)
+                              {
+                                  case "Signpost": name = "Sign Post"; break;
+                                  case "Lamppost": name = "Star Post"; break;
+                                  case "Spring": name = "Red Spring"; break;
+                                  case "Egg Prison": name = "Animal Prison"; break;
+                                  case "Hidden Point Bonus": name = "Object Score"; break;
+                                  case "Invisible solid block": name = "Invisible Block"; break;
+                              }
+          '@
+          if (!$formSource.Contains('name = def.Name;')) { throw 'Could not find source object-name mapping in RetroConverter.' }
+          $formSource = $formSource.Replace('name = def.Name;', $aliasReplacement)
+          $oldEntity = 'scene.entities.Add(new Object4(objMap[obj.ID], obj.SubType, obj.X << 16, obj.Y << 16));'
+          $newEntity = @'
+                          if (obj.ID == 0x25)
+                          {
+                              // S1 Ring objects encode count and a 16-way spacing pattern in SubType.
+                              System.Drawing.Point[] ringSpacing = new System.Drawing.Point[] {
+                                  new System.Drawing.Point(0x10, 0), new System.Drawing.Point(0x18, 0),
+                                  new System.Drawing.Point(0x20, 0), new System.Drawing.Point(0, 0x10),
+                                  new System.Drawing.Point(0, 0x18), new System.Drawing.Point(0, 0x20),
+                                  new System.Drawing.Point(0x10, 0x10), new System.Drawing.Point(0x18, 0x18),
+                                  new System.Drawing.Point(0x20, 0x20), new System.Drawing.Point(-0x10, 0x10),
+                                  new System.Drawing.Point(-0x18, 0x18), new System.Drawing.Point(-0x20, 0x20),
+                                  new System.Drawing.Point(0x10, 8), new System.Drawing.Point(0x18, 0x10),
+                                  new System.Drawing.Point(-0x10, 8), new System.Drawing.Point(-0x18, 0x10)
+                              };
+                              int ringCount = Math.Min(6, obj.SubType & 7) + 1;
+                              int ringDirection = obj.SubType >> 4;
+                              for (int ring = 0; ring < ringCount; ring++)
+                              {
+                                  int ringX = obj.X + ringSpacing[ringDirection].X * ring;
+                                  int ringY = obj.Y + ringSpacing[ringDirection].Y * ring;
+                                  scene.entities.Add(new Object4((byte)ringid, 0, ringX << 16, ringY << 16));
+                              }
+                          }
+                          else
+                          {
+                              byte entityType = objMap[obj.ID];
+                              byte entitySubtype = obj.SubType;
+                              if (obj.ID == 0x41)
+                              {
+                                  // S1 spring: bit 1 selects yellow; bits 4/5 select horizontal/down.
+                                  bool yellow = (obj.SubType & 0x02) != 0;
+                                  entityType = (byte)(objNames.IndexOf(yellow ? "Yellow Spring" : "Red Spring") + 1);
+                                  if ((obj.SubType & 0x20) != 0)
+                                      entitySubtype = 3; // down
+                                  else if ((obj.SubType & 0x10) != 0)
+                                      entitySubtype = (byte)(obj.XFlip ? 2 : 1); // left/right
+                                  else
+                                      entitySubtype = 0; // up
+                              }
+                              else if (obj.ID == 0x36)
+                              {
+                                  // S1 spike subtype encodes shape/movement; S2A uses four direction values.
+                                  int spikeType = (obj.SubType >> 4) & 7;
+                                  entitySubtype = (byte)((spikeType == 1 || spikeType == 5)
+                                      ? (obj.XFlip ? 2 : 1)
+                                      : (obj.YFlip ? 3 : 0));
+                              }
+                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));
+                          }
+          '@
+          if (!$formSource.Contains($oldEntity)) { throw 'Could not find RSDKv4 object-entity conversion statement.' }
+          $formSource = $formSource.Replace($oldEntity, $newEntity)
+          Set-Content -LiteralPath $formPath -Value $formSource -Encoding UTF8
+
           $program = @'
           using System;
           using System.Collections.Generic;
@@ -64,6 +137,20 @@ jobs:
           {
               static class Program
               {
+                  private static string MapSourceObjectName(string sourceName)
+                  {
+                      switch (sourceName)
+                      {
+                          case "Signpost": return "Sign Post";
+                          case "Lamppost": return "Star Post";
+                          case "Spring": return "Red Spring";
+                          case "Egg Prison": return "Animal Prison";
+                          case "Hidden Point Bonus": return "Object Score";
+                          case "Invisible solid block": return "Invisible Block";
+                          default: return sourceName;
+                      }
+                  }
+
                   [STAThread]
                   static int Main(string[] args)
                   {
@@ -112,6 +199,46 @@ jobs:
                           File.WriteAllLines(Path.Combine(args[4], "S2A-global-object-types.csv"),
                               new[] { "TargetID,Name" }.Concat(targetConfig.objects.Select((obj, index) =>
                                   String.Format("{0},\"{1}\"", index + 1, (obj.name ?? "").Replace("\"", "\"\"")))));
+
+                          var customTypes = LevelData.Objects
+                              .Select(obj => {
+                                  string sourceName;
+                                  if (LevelData.ObjTypes.TryGetValue(obj.ID, out ObjectDefinition def))
+                                      sourceName = def.Name;
+                                  else
+                                      sourceName = String.Format("Unk{0:X2}", obj.ID);
+                                  return MapSourceObjectName(sourceName);
+                              })
+                              .Distinct()
+                              .Where(name => !targetConfig.objects.Any(target => target.name == name))
+                              .OrderBy(name => name)
+                              .ToArray();
+                          File.WriteAllLines(Path.Combine(args[4], "ERaZor-custom-object-types.txt"), customTypes);
+
+                          var objectReport = new List<string> { "SourceID,SourceName,Placements,TargetObject,Handling" };
+                          foreach (var group in LevelData.Objects.GroupBy(obj => obj.ID).OrderBy(group => group.Key))
+                          {
+                              string sourceName;
+                              if (LevelData.ObjTypes.TryGetValue(group.Key, out ObjectDefinition def))
+                                  sourceName = def.Name;
+                              else
+                                  sourceName = String.Format("Unk{0:X2}", group.Key);
+                              string targetName = MapSourceObjectName(sourceName);
+                              string handling = customTypes.Contains(targetName)
+                                  ? "Stage-local no-op placeholder until object behavior is ported"
+                                  : "Mapped to S2A global object";
+                              if (group.Key == 0x25) handling = "S1 count/spacing pattern expanded into individual Ring entities";
+                              if (group.Key == 0x41) handling = "S1 color and direction bits mapped to Red/Yellow Spring properties";
+                              if (group.Key == 0x36) handling = "Approximate S1 spike orientation mapping; size variants are not preserved";
+                              objectReport.Add(String.Format("0x{0:X2},\"{1}\",{2},\"{3}\",\"{4}\"",
+                                  group.Key, sourceName.Replace("\"", "\"\""), group.Count(), targetName, handling));
+                          }
+                          File.WriteAllLines(Path.Combine(args[4], "ObjectConversionReport.csv"), objectReport);
+                          int expandedRingCount = LevelData.Objects
+                              .Where(obj => obj.ID == 0x25)
+                              .Sum(obj => Math.Min(6, obj.SubType & 7) + 1);
+                          Console.WriteLine("S1 ring groups expanded to " + expandedRingCount + " individual rings.");
+                          Console.WriteLine("Stage-local placeholder object types: " + customTypes.Length);
 
                           Console.WriteLine("Source level: " + selectedLevel);
                           Console.WriteLine("Source objects: " + LevelData.Objects.Count);
