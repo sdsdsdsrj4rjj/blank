@@ -114,6 +114,47 @@ jobs:
                           Console.WriteLine("Source object definitions: " + LevelData.ObjTypes.Count);
                           Console.WriteLine("Target global object definitions: " + targetConfig.objects.Count);
 
+                          // Repair only invalid source layout references; map them to SonLVL's synthetic blank chunk (index 0).
+                          int invalidFG = 0, invalidBG = 0, nullChunkBlocks = 0;
+                          ushort[,] fg = LevelData.Layout.FGLayout;
+                          for (int y = 0; y < fg.GetLength(1); y++)
+                              for (int x = 0; x < fg.GetLength(0); x++)
+                              {
+                                  ushort id = fg[x, y];
+                                  if (id >= LevelData.Chunks.Count || LevelData.Chunks[id] == null)
+                                  {
+                                      Console.WriteLine("FG layout [" + x + "," + y + "] references missing chunk " + id + "; using blank chunk 0.");
+                                      fg[x, y] = 0;
+                                      invalidFG++;
+                                  }
+                              }
+                          ushort[,] bgLayout = LevelData.Layout.BGLayout;
+                          for (int y = 0; y < bgLayout.GetLength(1); y++)
+                              for (int x = 0; x < bgLayout.GetLength(0); x++)
+                              {
+                                  ushort id = bgLayout[x, y];
+                                  if (id >= LevelData.Chunks.Count || LevelData.Chunks[id] == null)
+                                  {
+                                      Console.WriteLine("BG layout [" + x + "," + y + "] references missing chunk " + id + "; using blank chunk 0.");
+                                      bgLayout[x, y] = 0;
+                                      invalidBG++;
+                                  }
+                              }
+                          for (int ci = 0; ci < LevelData.Chunks.Count; ci++)
+                          {
+                              var chunk = LevelData.Chunks[ci];
+                              if (chunk == null) continue;
+                              for (int by = 0; by < chunk.Blocks.GetLength(1); by++)
+                                  for (int bx = 0; bx < chunk.Blocks.GetLength(0); bx++)
+                                      if (chunk.Blocks[bx, by] == null)
+                                      {
+                                          chunk.Blocks[bx, by] = ChunkBlock.Create(EngineVersion.S1);
+                                          chunk.Blocks[bx, by].Block = 0;
+                                          nullChunkBlocks++;
+                                      }
+                          }
+                          Console.WriteLine("Missing layout refs repaired: FG=" + invalidFG + ", BG=" + invalidBG + ", null chunk cells filled=" + nullChunkBlocks);
+
                           formType.GetMethod("ConvertV4", flags).Invoke(form, null);
                           form.Dispose();
                           Console.WriteLine("RSDKv4 conversion finished.");
