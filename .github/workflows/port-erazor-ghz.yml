@@ -169,7 +169,7 @@ jobs:
                           formType.GetMethod("ConvertV4", flags).Invoke(form, null);
                           Console.WriteLine("RSDKv4 export directory after conversion: " + exportDialog.SelectedPath);
                           foreach (string file in Directory.GetFiles(exportDialog.SelectedPath, "*", SearchOption.AllDirectories))
-                              Console.WriteLine("EXPORTED FILE: " + file + " (" + new FileInfo(file).Length + " bytes)");
+                              Console.WriteLine("EXPORTED FILE: " + file + " (" + new System.IO.FileInfo(file).Length + " bytes)");
                           string[] allStageConfigs = Directory.GetFiles(Environment.CurrentDirectory, "StageConfig.bin", SearchOption.AllDirectories);
                           foreach (string file in allStageConfigs)
                               Console.WriteLine("FOUND STAGECONFIG: " + file);
