@@ -56,16 +56,18 @@ jobs:
           $formPath = 'RetroConverter/RetroConverter/Form1.cs'
           $formSource = Get-Content -LiteralPath $formPath -Raw
           $aliasReplacement = @'
-          name = def.Name;
-                              switch (name)
-                              {
-                                  case "Signpost": name = "Sign Post"; break;
-                                  case "Lamppost": name = "Star Post"; break;
-                                  case "Spring": name = "Red Spring"; break;
-                                  case "Egg Prison": name = "Animal Prison"; break;
-                                  case "Hidden Point Bonus": name = "Object Score"; break;
-                                  case "Invisible solid block": name = "Invisible Block"; break;
-                              }
+          {
+              name = def.Name;
+              switch (name)
+              {
+                  case "Signpost": name = "Sign Post"; break;
+                  case "Lamppost": name = "Star Post"; break;
+                  case "Spring": name = "Red Spring"; break;
+                  case "Egg Prison": name = "Animal Prison"; break;
+                  case "Hidden Point Bonus": name = "Object Score"; break;
+                  case "Invisible solid block": name = "Invisible Block"; break;
+              }
+          }
           '@
           if (!$formSource.Contains('name = def.Name;')) { throw 'Could not find source object-name mapping in RetroConverter.' }
           $formSource = $formSource.Replace('name = def.Name;', $aliasReplacement)
