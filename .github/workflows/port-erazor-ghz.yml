@@ -66,11 +66,48 @@ jobs:
                   case "Egg Prison": name = "Animal Prison"; break;
                   case "Hidden Point Bonus": name = "Object Score"; break;
                   case "Invisible solid block": name = "Invisible Block"; break;
+                  case "Bridge Stump": name = "Bridge End"; break;
+                  case "Buzz Bomber": name = "Buzzer"; break;
+                  case "Chopper": name = "Chop Chop"; break;
               }
           }
           '@
           if (!$formSource.Contains('name = def.Name;')) { throw 'Could not find source object-name mapping in RetroConverter.' }
           $formSource = $formSource.Replace('name = def.Name;', $aliasReplacement)
+
+          # Reserve the exact local object IDs expected by reusable S2A GHZ object scripts.
+          $stageSeed = @'
+          List<KeyValuePair<string, string>> seededStageObjects = new List<KeyValuePair<string, string>>();
+                      Action<string, string> addSeededStageObject = (name, script) =>
+                      {
+                          objNames.Add(name);
+                          seededStageObjects.Add(new KeyValuePair<string, string>(name, script));
+                      };
+                      addSeededStageObject("Fall Platform", "EHZ/FPlatform.txt"); // ID 41
+                      addSeededStageObject("H Platform", "EHZ/HPlatform.txt");     // ID 42
+                      addSeededStageObject("V Platform", "EHZ/VPlatform.txt");     // ID 43
+                      for (int id = 44; id <= 44; id++)
+                      {
+                          string name = "ERaZor Reserved " + id;
+                          addSeededStageObject(name, LevelData.Level.DisplayName + "\\" + name + ".txt");
+                      }
+                      addSeededStageObject("Bridge", "EHZ/Bridge.txt");             // ID 45
+                      addSeededStageObject("Bridge End", "EHZ/BridgeEnd.txt");      // ID 46
+                      for (int id = 47; id <= 53; id++)
+                      {
+                          string name = "ERaZor Reserved " + id;
+                          addSeededStageObject(name, LevelData.Level.DisplayName + "\\" + name + ".txt");
+                      }
+                      addSeededStageObject("Buzzer", "Enemies/Buzzer.txt");          // ID 54
+                      addSeededStageObject("Buzzer Shot", "Enemies/BuzzerShot.txt");// ID 55
+                      for (int id = 56; id <= 66; id++)
+                      {
+                          string name = "ERaZor Reserved " + id;
+                          addSeededStageObject(name, LevelData.Level.DisplayName + "\\" + name + ".txt");
+                      }
+                      addSeededStageObject("Chop Chop", "Enemies/ChopChop.txt");     // ID 67
+          '@
+          $formSource = $formSource.Replace('Stageconfig4 cfg = new Stageconfig4() { loadGlobalObjects = true };', 'Stageconfig4 cfg = new Stageconfig4() { loadGlobalObjects = true };' + [Environment]::NewLine + $stageSeed)
           $oldEntity = 'scene.entities.Add(new Object4(objMap[obj.ID], obj.SubType, obj.X << 16, obj.Y << 16));'
           $newEntity = @'
                           if (obj.ID == 0x25)
@@ -123,7 +160,39 @@ jobs:
                           }
           '@
           if (!$formSource.Contains($oldEntity)) { throw 'Could not find RSDKv4 object-entity conversion statement.' }
-          $formSource = $formSource.Replace($oldEntity, $newEntity)
+          $platformHandling = @'
+                              if (obj.ID == 0x18)
+                              {
+                                  // S1 GHZ platform movement subtypes to the matching S2A stage-local object IDs.
+                                  int movement = obj.SubType & 0x0F;
+                                  if (movement == 3) { entityType = 41; entitySubtype = 0; }      // falls when stood on
+                                  else if (movement == 1) { entityType = 42; entitySubtype = 0; } // right to left
+                                  else if (movement == 5) { entityType = 42; entitySubtype = 1; } // left to right
+                                  else if (movement == 2) { entityType = 43; entitySubtype = 0; } // down to up
+                                  else if (movement == 6) { entityType = 43; entitySubtype = 1; } // up to down
+                              }
+                              else if (obj.ID == 0x22)
+                              {
+                                  // S1 Buzz Bomber uses the S2A Buzzer script; X flip selects flight direction.
+                                  entityType = 54;
+                                  entitySubtype = (byte)(obj.XFlip ? 1 : 0);
+                              }
+                              else if (obj.ID == 0x2B)
+                              {
+                                  // S1 Chopper is represented by the closest built-in jumping fish enemy.
+                                  entityType = 67;
+                                  entitySubtype = (byte)(obj.XFlip ? 1 : 0);
+                              }
+          '@
+          if (!$formSource.Contains($oldEntity)) { throw 'Could not find RSDKv4 object-entity conversion statement.' }
+          $formSource = $formSource.Replace($oldEntity, $newEntity.Replace('                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));', $platformHandling + [Environment]::NewLine + '                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));')))
+
+          $formSource = $formSource.Replace(
+              'foreach (string name in newobjs)' + [Environment]::NewLine + "`t`t`tforeach (string name in newobjs)",
+              'foreach (KeyValuePair<string, string> item in seededStageObjects)' + [Environment]::NewLine +
+              "`t`t`t`tcfg.objects.Add(new Gameconfig4.ObjectInfo() { name = item.Key, script = item.Value });" +
+              [Environment]::NewLine + "`t`t`tforeach (string name in newobjs)")
+          Set-Content -LiteralPath $formPath -Value $formSource -Encoding UTF8
           Set-Content -LiteralPath $formPath -Value $formSource -Encoding UTF8
 
           $program = @'
@@ -149,6 +218,9 @@ jobs:
                           case "Egg Prison": return "Animal Prison";
                           case "Hidden Point Bonus": return "Object Score";
                           case "Invisible solid block": return "Invisible Block";
+                          case "Bridge Stump": return "Bridge End";
+                          case "Buzz Bomber": return "Buzzer";
+                          case "Chopper": return "Chop Chop";
                           default: return sourceName;
                       }
                   }
@@ -202,6 +274,17 @@ jobs:
                               new[] { "TargetID,Name" }.Concat(targetConfig.objects.Select((obj, index) =>
                                   String.Format("{0},\"{1}\"", index + 1, (obj.name ?? "").Replace("\"", "\"\"")))));
 
+                          var seededTypeNames = new HashSet<string>(new[] {
+                              "Fall Platform", "H Platform", "V Platform", "Bridge", "Bridge End",
+                              "Buzzer", "Buzzer Shot", "Chop Chop"
+                          }, StringComparer.Ordinal);
+                          var reservedTypeNames = new List<string>();
+                          reservedTypeNames.Add("ERaZor Reserved 44");
+                          for (int id = 47; id <= 53; id++) reservedTypeNames.Add("ERaZor Reserved " + id);
+                          for (int id = 56; id <= 66; id++) reservedTypeNames.Add("ERaZor Reserved " + id);
+                          File.WriteAllLines(Path.Combine(args[4], "ERaZor-reserved-object-types.txt"), reservedTypeNames);
+                          foreach (string reserved in reservedTypeNames) seededTypeNames.Add(reserved);
+
                           var customTypes = LevelData.Objects
                               .Select(obj => {
                                   string sourceName;
@@ -212,7 +295,7 @@ jobs:
                                   return MapSourceObjectName(sourceName);
                               })
                               .Distinct()
-                              .Where(name => !targetConfig.objects.Any(target => target.name == name))
+                              .Where(name => !targetConfig.objects.Any(target => target.name == name) && !seededTypeNames.Contains(name))
                               .OrderBy(name => name)
                               .ToArray();
                           File.WriteAllLines(Path.Combine(args[4], "ERaZor-custom-object-types.txt"), customTypes);
@@ -228,7 +311,9 @@ jobs:
                               string targetName = MapSourceObjectName(sourceName);
                               string handling = customTypes.Contains(targetName)
                                   ? "Stage-local no-op placeholder until object behavior is ported"
-                                  : "Mapped to S2A global object";
+                                  : (seededTypeNames.Contains(targetName)
+                                      ? "Mapped to existing S2A stage-local script"
+                                      : "Mapped to S2A global object");
                               if (group.Key == 0x25) handling = "S1 count/spacing pattern expanded into individual Ring entities";
                               if (group.Key == 0x41) handling = "S1 color and direction bits mapped to Red/Yellow Spring properties";
                               if (group.Key == 0x36) handling = "Approximate S1 spike orientation mapping; size variants are not preserved";
