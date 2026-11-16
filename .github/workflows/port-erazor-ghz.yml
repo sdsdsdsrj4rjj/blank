@@ -29,6 +29,13 @@ jobs:
           git clone --depth 1 https://github.com/Selbi182/ERaZor.git ERaZor
           git -C ERaZor fetch --depth 1 origin 329d1246d3b6ec89fb081b64cd46928f9e297ace
           git -C ERaZor checkout --detach 329d1246d3b6ec89fb081b64cd46928f9e297ace
+          $artDir = 'ERaZor/src/artkosp'
+          Copy-Item -LiteralPath "$artDir/8x8ghz.kospm" -Destination "$artDir/8x8ghz1.kospm" -Force
+          foreach ($script in @('ERaZor/src/SonLVL INIs/GHZ/Bridge.cs','ERaZor/src/SonLVL INIs/GHZ/SpikedPole.cs')) {
+            $source = Get-Content -LiteralPath $script -Raw
+            $source = $source.Replace('CompressionType.Nemesis','CompressionType.KosinskiPlusM')
+            Set-Content -LiteralPath $script -Value $source -Encoding UTF8
+          }
           git clone --depth 1 https://github.com/ElspethThePict/S2Absolute.git S2Absolute
           git -C S2Absolute fetch --depth 1 origin a4de68f96eb184258fc87c1cacef9692f425ecec
           git -C S2Absolute checkout --detach a4de68f96eb184258fc87c1cacef9692f425ecec
