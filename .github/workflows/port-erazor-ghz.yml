@@ -206,8 +206,11 @@ jobs:
           $out = Join-Path $env:GITHUB_WORKSPACE 'ERaZor-NightHill-RSDKv4'
           New-Item -ItemType Directory -Path $out -Force | Out-Null
           $exe = (Resolve-Path 'RetroConverter/RetroConverter/bin/Release/RetroConverter.exe').Path
-          & $exe --convert $ini 'Night Hill Place' $game $out true
-          # Verify outputs below; this WinExe does not reliably set PowerShell LASTEXITCODE.
+          # Start-Process -Wait is required because RetroConverter is built as a WinExe.
+          $argumentLine = '--convert "{0}" "{1}" "{2}" "{3}" true' -f $ini, 'Night Hill Place', $game, $out
+          $process = Start-Process -FilePath $exe -ArgumentList $argumentLine -Wait -PassThru
+          Write-Host "RetroConverter process exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "RetroConverter failed with exit code $($process.ExitCode)" }
           $required = @('StageConfig.bin','16x16Tiles.gif','128x128Tiles.bin','CollisionMasks.bin','Backgrounds.bin','Act1.bin')
           foreach ($name in $required) {
             $file = Join-Path $out $name
