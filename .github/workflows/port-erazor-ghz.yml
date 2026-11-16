@@ -127,7 +127,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          msbuild 'RetroConverter/RetroConverter.sln' /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
+          msbuild 'RetroConverter/RetroConverter.sln' /t:Build /p:Configuration=Release /p:Platform="Any CPU" /m
           $bin = 'RetroConverter/RetroConverter/bin/Release'
           Get-ChildItem 'RetroConverter' -Filter '*.dll' -File | Copy-Item -Destination $bin -Force
           Get-ChildItem $bin -Filter '*.dll' | Select-Object Name,Length | Format-Table -AutoSize
