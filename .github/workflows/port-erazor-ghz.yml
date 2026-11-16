@@ -187,12 +187,11 @@ jobs:
           if (!$formSource.Contains($oldEntity)) { throw 'Could not find RSDKv4 object-entity conversion statement.' }
           $formSource = $formSource.Replace($oldEntity, $newEntity.Replace('                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));', $platformHandling + [Environment]::NewLine + '                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));')))
 
-          $formSource = $formSource.Replace(
-              'foreach (string name in newobjs)' + [Environment]::NewLine + "`t`t`tforeach (string name in newobjs)",
-              'foreach (KeyValuePair<string, string> item in seededStageObjects)' + [Environment]::NewLine +
-              "`t`t`t`tcfg.objects.Add(new Gameconfig4.ObjectInfo() { name = item.Key, script = item.Value });" +
-              [Environment]::NewLine + "`t`t`tforeach (string name in newobjs)")
-          Set-Content -LiteralPath $formPath -Value $formSource -Encoding UTF8
+          $seededAdd = @'
+          foreach (KeyValuePair<string, string> seededObject in seededStageObjects)
+              cfg.objects.Add(new Gameconfig4.ObjectInfo() { name = seededObject.Key, script = seededObject.Value });
+          '@
+          $formSource = $formSource.Replace('foreach (string name in newobjs)', $seededAdd + [Environment]::NewLine + 'foreach (string name in newobjs)')
           Set-Content -LiteralPath $formPath -Value $formSource -Encoding UTF8
 
           $program = @'
