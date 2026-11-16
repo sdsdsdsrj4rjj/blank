@@ -185,7 +185,7 @@ jobs:
                               }
           '@
           if (!$formSource.Contains($oldEntity)) { throw 'Could not find RSDKv4 object-entity conversion statement.' }
-          $formSource = $formSource.Replace($oldEntity, $newEntity.Replace('                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));', $platformHandling + [Environment]::NewLine + '                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));')))
+          $formSource = $formSource.Replace($oldEntity, $newEntity.Replace('                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));', $platformHandling + [Environment]::NewLine + '                              scene.entities.Add(new Object4(entityType, entitySubtype, obj.X << 16, obj.Y << 16));'))
 
           $seededAdd = @'
           foreach (KeyValuePair<string, string> seededObject in seededStageObjects)
